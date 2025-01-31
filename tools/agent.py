@@ -139,18 +139,22 @@ async def predict(body: PredictionRequest) -> PredictionResponse:
     request_id = body.id
     original_query = body.query
     await logger.info(f"Получен запрос: id={request_id}, query={original_query}")
+
     safe_query = sanitize_user_input(original_query)
     safe_query = clean_query(safe_query)
     await logger.info(f"Очищенный запрос: {safe_query}")
-    has_variants = bool(re.search(r"\n\d+\.", safe_query))
+    user_message = json.dumps({"query": safe_query, "id": request_id})
     completion = await openai_chat_completion(
-        messages=[system_message, {"role": "user", "content": safe_query}],
+        messages=[system_message, {"role": "user", "content": user_message}],
         functions=tools,
     )
     message_content = completion.choices[0].message
     final_answer_text = ""
-    sources_list: List[str] = []
-    while True:
+    max_iterations = 10
+    iteration_count = 0
+
+    while iteration_count < max_iterations:
+        iteration_count += 1
         if getattr(message_content, "function_call", None):
             tool_call = message_content.function_call
             fn_name = tool_call.name
@@ -169,7 +173,7 @@ async def predict(body: PredictionRequest) -> PredictionResponse:
                 second_completion = await openai_chat_completion(
                     [
                         system_message,
-                        {"role": "user", "content": safe_query},
+                        {"role": "user", "content": user_message},
                         {
                             "role": "assistant",
                             "content": None,
@@ -200,7 +204,7 @@ async def predict(body: PredictionRequest) -> PredictionResponse:
                 third_completion = await openai_chat_completion(
                     [
                         system_message,
-                        {"role": "user", "content": safe_query},
+                        {"role": "user", "content": user_message},
                         {
                             "role": "assistant",
                             "content": None,
@@ -225,6 +229,16 @@ async def predict(body: PredictionRequest) -> PredictionResponse:
         else:
             final_answer_text = message_content.content
             break
+
+    if iteration_count >= max_iterations:
+        await logger.info("Достигнут лимит итераций для вызова функций, прекращаю дальнейшие вызовы.")
+        return PredictionResponse(
+            id=request_id,
+            answer=None,
+            reasoning="Превышен лимит итераций при вызове функций. Ответ сгенерирован моделью GPT-4.",
+            sources=[],
+        )
+
     await logger.info(f"Исходный ответ модели: {final_answer_text}")
     try:
         parsed_final = json.loads(final_answer_text)
@@ -233,15 +247,14 @@ async def predict(body: PredictionRequest) -> PredictionResponse:
                 validate_urls(parsed_final["sources"])
             )
             return PredictionResponse(
-                id=parsed_final["id"],
+                id=request_id,
                 answer=parsed_final["answer"],
                 reasoning=parsed_final["reasoning"],
                 sources=parsed_final["sources"],
             )
     except json.JSONDecodeError:
-        await logger.info(
-            "Не удалось распарсить исходный ответ модели как JSON. Применяю дополнительную обработку."
-        )
+        await logger.info("Не удалось распарсить исходный ответ модели как JSON. Применяю дополнительную обработку.")
+
     return PredictionResponse(
         id=request_id,
         answer=None,
