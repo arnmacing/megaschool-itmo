@@ -1,5 +1,6 @@
-import sys
 import os
+import sys
+
 from aiologger import Logger
 from aiologger.formatters.base import Formatter
 from aiologger.handlers.files import AsyncFileHandler
@@ -7,6 +8,7 @@ from aiologger.handlers.streams import AsyncStreamHandler
 from aiologger.levels import LogLevel
 
 _logger_instance = None
+
 
 async def setup_logger():
     global _logger_instance

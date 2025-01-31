@@ -18,6 +18,7 @@ def sanitize_user_input(text: str) -> str:
 
 import re
 
+
 def clean_query(query: str) -> str:
     """
     Очищает запрос от мусора, но сохраняет нумерованные варианты ответа.
@@ -35,26 +36,6 @@ def remove_links_from_reasoning(reasoning: str) -> str:
     туда по требованиям.
     """
     return re.sub(r"https?://[^\s\"',)]+", "", reasoning).strip()
-
-
-def extract_answer_from_reasoning(text: str):
-    """
-    Извлекает номер ответа (1-10), если встречается в формате "вариант X" или "вариант№ X".
-    """
-    clean_text = re.sub(r'[\"\',*]+', "", text.lower())
-    clean_text = re.sub(r"[\n\r\t]+", " ", clean_text)
-    clean_text = re.sub(r"\s+", " ", clean_text)
-
-    pattern = r"вариант\w*\s*(\d+)"
-    match = re.search(pattern, clean_text)
-    if match:
-        try:
-            num = int(match.group(1))
-            if 1 <= num <= 10:
-                return num
-        except ValueError:
-            pass
-    return None
 
 
 def find_urls_in_text(text: str):
