@@ -3,3 +3,7 @@ aiologger[aiofiles]
 pip-chill
 uvicorn
 gunicorn
+openai
+requests
+python-dotenv
+pydantic

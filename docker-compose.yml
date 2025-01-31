@@ -3,20 +3,13 @@ version: "3.8"
 services:
   fastapi-service:
     build: .
-    container_name: fastapi-baseline
+    container_name: fastapi
     ports:
       - "8080:8080"
     restart: unless-stopped
     environment:
       - TZ=UTC
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SERPER_API_KEY=${SERPER_API_KEY}
     volumes:
       - ./logs:/app/logs
-    # Если нужно GPU
-    # runtime: nvidia
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
