@@ -1,5 +1,7 @@
 FROM python:3.9-slim
 
+ENV PYTHONPATH=/app
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
