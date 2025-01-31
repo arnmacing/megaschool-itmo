@@ -9,12 +9,10 @@ from openai import AsyncOpenAI
 from schemas.request import PredictionRequest, PredictionResponse
 from utils.logger import setup_logger
 from utils.utils import (call_openai_with_retry, clean_query, fix_broken_urls,
-                         remove_links_from_reasoning, sanitize_user_input,
-                         validate_urls)
+                         sanitize_user_input, validate_urls)
 
 from .functions import search_links
 
-# Получение ключа API и настройка клиента
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY не задан в переменных окружения.")
@@ -29,11 +27,7 @@ client = AsyncOpenAI(api_key=OPENAI_API_KEY, base_url=BASE_URL if BASE_URL else 
 async def classify_relevance(query: str) -> Dict[str, str]:
     """
     Проверяет, относится ли запрос к ИТМО.
-    Возвращает словарь:
-    {
-        "is_itmo_relevant": bool,
-        "reason": str
-    }
+    Возвращает: {"is_itmo_relevant": bool, "reason": str}
     """
     classification_prompt = {
         "role": "system",
@@ -52,23 +46,17 @@ async def classify_relevance(query: str) -> Dict[str, str]:
             '{"is_itmo_relevant": false, "reason": "..."}'
         ),
     }
-    user_message = {"role": "user", "content": query}
-    messages = [classification_prompt, user_message]
-
+    messages = [classification_prompt, {"role": "user", "content": query}]
     response = await call_openai_with_retry(
         client.chat.completions.create, model=MODEL_NAME, messages=messages
     )
     result_text = response.choices[0].message.content
-
     try:
-        result = json.loads(result_text)
+        return json.loads(result_text)
     except json.JSONDecodeError:
-        result = {"is_itmo_relevant": False, "reason": "Ошибка обработки запроса."}
-
-    return result
+        return {"is_itmo_relevant": False, "reason": "Ошибка обработки запроса."}
 
 
-# Обновлённое системное сообщение
 system_message = {
     "role": "system",
     "content": (
@@ -93,11 +81,11 @@ system_message = {
         "# Примеры\n"
         "**Запрос:**\n"
         "```json\n"
-        "{\n  \"query\": \"В каком городе находится главный кампус Университета ИТМО?\\n1. Москва\\n2. Санкт-Петербург\\n3. Екатеринбург\\n4. Нижний Новгород\",\n  \"id\": 1\n}\n"
+        '{\n  "query": "В каком городе находится главный кампус Университета ИТМО?\\n1. Москва\\n2. Санкт-Петербург\\n3. Екатеринбург\\n4. Нижний Новгород",\n  "id": 1\n}\n'
         "```\n\n"
         "**Ответ:**\n"
         "```json\n"
-        "{\n  \"id\": 1,\n  \"answer\": 2,\n  \"reasoning\": \"Главный кампус Университета ИТМО находится в Санкт-Петербурге. Это подтверждается информацией с официального сайта. Ответ сгенерирован моделью GPT-4.\",\n  \"sources\": [\n    \"https://itmo.ru/ru/\",\n    \"https://abit.itmo.ru/\"\n  ]\n}\n"
+        '{\n  "id": 1,\n  "answer": 2,\n  "reasoning": "Главный кампус Университета ИТМО находится в Санкт-Петербурге. Это подтверждается информацией с официального сайта. Ответ сгенерирован моделью GPT-4.",\n  "sources": [\n    "https://itmo.ru/ru/",\n    "https://abit.itmo.ru/"\n  ]\n}\n'
         "```\n\n"
         "Если запрос не относится к теме ИТМО, отвечай: 'Этот вопрос выходит за рамки моей специализации.' и возвращай JSON с answer: null и пустыми sources."
     ),
@@ -129,9 +117,6 @@ tools = [
 
 
 async def openai_chat_completion(messages, functions=None):
-    """
-    Вызывает OpenAI Chat Completion и возвращает ответ.
-    """
     async with AsyncOpenAI(
         api_key=OPENAI_API_KEY, base_url=BASE_URL if BASE_URL else None
     ) as client:
@@ -143,7 +128,6 @@ async def openai_chat_completion(messages, functions=None):
         if functions:
             req_data["functions"] = functions
             req_data["function_call"] = "auto"
-
         response = await call_openai_with_retry(
             client.chat.completions.create, **req_data
         )
@@ -151,27 +135,14 @@ async def openai_chat_completion(messages, functions=None):
 
 
 async def predict(body: PredictionRequest) -> PredictionResponse:
-    """
-    Основная функция-обработчик:
-    1. Проверяет релевантность запроса (classify_relevance).
-    2. При необходимости вызывает search_links для поиска источников.
-    3. Возвращает итоговый JSON-ответ, полученный от модели, так как он уже имеет нужную структуру.
-    """
     logger = await setup_logger()
     request_id = body.id
     original_query = body.query
-
     await logger.info(f"Получен запрос: id={request_id}, query={original_query}")
-
-    # Очистка запроса
     safe_query = sanitize_user_input(original_query)
     safe_query = clean_query(safe_query)
     await logger.info(f"Очищенный запрос: {safe_query}")
-
-    # Определяем, содержит ли вопрос варианты (номера от 1 до 10)
     has_variants = bool(re.search(r"\n\d+\.", safe_query))
-
-    # Получаем первичный ответ от модели
     completion = await openai_chat_completion(
         messages=[system_message, {"role": "user", "content": safe_query}],
         functions=tools,
@@ -179,16 +150,12 @@ async def predict(body: PredictionRequest) -> PredictionResponse:
     message_content = completion.choices[0].message
     final_answer_text = ""
     sources_list: List[str] = []
-
-    # Обработка вызовов функций (например, классификация релевантности и поиск источников)
     while True:
         if getattr(message_content, "function_call", None):
             tool_call = message_content.function_call
             fn_name = tool_call.name
             fn_args = json.loads(tool_call.arguments or "{}")
-
             await logger.info(f"Функция вызвана: {fn_name} с аргументами: {fn_args}")
-
             if fn_name == "classify_relevance":
                 classification_result = await classify_relevance(fn_args["query"])
                 if not classification_result["is_itmo_relevant"]:
@@ -221,9 +188,10 @@ async def predict(body: PredictionRequest) -> PredictionResponse:
                 )
                 message_content = second_completion.choices[0].message
                 continue
-
             elif fn_name == "search_links":
-                await logger.info(f"Вызван search_links для запроса: {fn_args.get('query', '')}")
+                await logger.info(
+                    f"Вызван search_links для запроса: {fn_args.get('query', '')}"
+                )
                 search_result = await search_links(
                     query=fn_args.get("query", ""),
                     max_results=fn_args.get("max_results", 3),
@@ -257,15 +225,13 @@ async def predict(body: PredictionRequest) -> PredictionResponse:
         else:
             final_answer_text = message_content.content
             break
-
     await logger.info(f"Исходный ответ модели: {final_answer_text}")
-
-    # Если "исходный ответ модели" уже является валидным JSON-объектом с нужной структурой, сразу возвращаем его.
     try:
         parsed_final = json.loads(final_answer_text)
         if all(key in parsed_final for key in ["id", "answer", "reasoning", "sources"]):
-            # При необходимости можно провести валидацию sources:
-            parsed_final["sources"] = fix_broken_urls(validate_urls(parsed_final["sources"]))
+            parsed_final["sources"] = fix_broken_urls(
+                validate_urls(parsed_final["sources"])
+            )
             return PredictionResponse(
                 id=parsed_final["id"],
                 answer=parsed_final["answer"],
@@ -273,11 +239,12 @@ async def predict(body: PredictionRequest) -> PredictionResponse:
                 sources=parsed_final["sources"],
             )
     except json.JSONDecodeError:
-        await logger.info("Не удалось распарсить исходный ответ модели как JSON. Применяю дополнительную обработку.")
-
+        await logger.info(
+            "Не удалось распарсить исходный ответ модели как JSON. Применяю дополнительную обработку."
+        )
     return PredictionResponse(
         id=request_id,
         answer=None,
         reasoning="Ошибка формирования ответа. Ответ сгенерирован моделью GPT-4.",
-        sources=[]
+        sources=[],
     )

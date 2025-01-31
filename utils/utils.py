@@ -1,3 +1,5 @@
+import re
+
 from utils.logger import setup_logger
 
 
@@ -16,9 +18,6 @@ def sanitize_user_input(text: str) -> str:
     return text
 
 
-import re
-
-
 def clean_query(query: str) -> str:
     """
     Очищает запрос от мусора, но сохраняет нумерованные варианты ответа.
@@ -28,19 +27,6 @@ def clean_query(query: str) -> str:
     query = re.sub(r"\s+", " ", query)
 
     return query
-
-
-def remove_links_from_reasoning(reasoning: str) -> str:
-    """
-    Удаляет http/https ссылки из reasoning, чтобы они не просачивались
-    туда по требованиям.
-    """
-    return re.sub(r"https?://[^\s\"',)]+", "", reasoning).strip()
-
-
-def find_urls_in_text(text: str):
-    url_pattern = re.compile(r"https?://[^\s\"',)]+")
-    return url_pattern.findall(text)
 
 
 def validate_urls(urls):
